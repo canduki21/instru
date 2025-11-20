@@ -1,0 +1,82 @@
+import socket
+import json
+import matplotlib.pyplot as plt
+import numpy as np
+
+SERVER_IP = "192.168.1.50"   # <-- CHANGE THIS TO YOUR WINDOWS IP
+SERVER_PORT = 5000
+
+# ----------------- Ask User for Settings -----------------
+print("---- Remote DAQ Client (Raspberry Pi 3) ----")
+num_points = int(input("Number of points to acquire: "))
+scan_rate = int(input("Scan rate (Hz): "))
+filter_type = input("Filter type (lowpass/highpass): ")
+filter_order = int(input("Filter order: "))
+cutoff = float(input("Cutoff frequency (Hz): "))
+filename = input("File name to save (e.g., test.csv): ")
+
+params = {
+    "num_points": num_points,
+    "scan_rate": scan_rate,
+    "analog_channels": [0, 1],
+    "filter_type": filter_type,
+    "filter_order": filter_order,
+    "cutoff_freq": cutoff,
+    "filename": filename
+}
+
+# ------------------ Connect to Server --------------------
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect((SERVER_IP, SERVER_PORT))
+print("Connected to LabVIEW server.")
+
+# ------------------ Send Configuration -------------------
+client.send(json.dumps(params).encode())
+print("Sent configuration to server.")
+
+# ------------------- Receive Data ------------------------
+data = client.recv(40_000_000).decode()  # large buffer for big datasets
+packet = json.loads(data)
+
+t = np.array(packet["time"])
+raw1 = np.array(packet["raw_ch1"])
+raw2 = np.array(packet["raw_ch2"])
+enc_raw = np.array(packet["raw_encoder"])
+filt1 = np.array(packet["filt_ch1"])
+filt2 = np.array(packet["filt_ch2"])
+enc_filt = np.array(packet["filt_encoder"])
+
+# ------------------ Save Data to CSV ---------------------
+full_data = np.column_stack((t, raw1, raw2, enc_raw, filt1, filt2, enc_filt))
+np.savetxt(filename, full_data,
+           delimiter=",",
+           header="time,raw1,raw2,enc_raw,filt1,filt2,enc_filt",
+           comments="")
+print(f"Data saved to {filename}")
+
+# -------------------- Plot the Data -----------------------
+plt.figure(figsize=(10,10))
+
+plt.subplot(3,1,1)
+plt.plot(t, raw1, label="Raw")
+plt.plot(t, filt1, label="Filtered")
+plt.title("Analog Channel 1")
+plt.legend()
+
+plt.subplot(3,1,2)
+plt.plot(t, raw2, label="Raw")
+plt.plot(t, filt2, label="Filtered")
+plt.title("Analog Channel 2")
+plt.legend()
+
+plt.subplot(3,1,3)
+plt.plot(t, enc_raw, label="Raw")
+plt.plot(t, enc_filt, label="Filtered")
+plt.title("Encoder Digital Channel")
+plt.legend()
+
+plt.tight_layout()
+plt.show()
+
+client.close()
+print("Connection closed.")
